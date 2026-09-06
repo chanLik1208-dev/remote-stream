@@ -24,6 +24,21 @@ glass-to-glass,體感接近 GeForce Now / Parsec。
 
 ---
 
+## 下載
+
+到 **[Releases](https://github.com/chanLik1208-dev/remote-stream/releases)** 拿打包好的執行檔，兩台都放同一份：
+
+| 檔案 | 內容 | 選它的時機 |
+|---|---|---|
+| **`RemotePlay-with-ffmpeg.zip`** | `RemotePlay.exe` ＋ ffmpeg ＋ ffplay ＋ 啟動 bat | 解壓就能跑，什麼都不用裝 |
+| **`RemotePlay.exe`** | 只有主程式（自帶 .NET runtime） | 你已經有 ffmpeg，或不想碰 GPL 授權 |
+
+`RemotePlay.exe` 本身**沒有內嵌 ffmpeg**，是以子行程呼叫外部的 `ffmpeg.exe`。
+若下載的是乾淨版，執行 `./Bundle-Ffmpeg.ps1` 把 ffmpeg 複製到 exe 旁的 `ffmpeg\` 即可（或讓它留在 PATH 上）。
+
+> 打包版內含的 ffmpeg 為 GPLv3 建置，散布相關的授權與對應原始碼位置見
+> [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
+
 ## 需求
 - **主機端**：Windows + NVIDIA GPU（NVENC）、ffmpeg 在 PATH、.NET SDK。已驗證：RTX 4070 / ffmpeg 7.0 / .NET 10。
 - **客戶端**：Windows + NVIDIA GPU（NVDEC，硬解；沒有也能軟解）、ffmpeg(含 ffplay) 在 PATH、.NET SDK。
