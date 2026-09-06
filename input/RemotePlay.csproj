@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>RemotePlay</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <LangVersion>latest</LangVersion>
+    <!-- 抑制跨平台 API 警告（本專案僅限 Windows）與 COM 動態警告 -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 音訊：WASAPI loopback 擷取 + 播放 -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- 音訊：純 C# Opus 編解碼 -->
+    <PackageReference Include="Concentus" Version="1.1.7" />
+    <!-- 手把：虛擬 Xbox 360 手把（需主機端安裝 ViGEmBus 驅動）-->
+    <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" />
+  </ItemGroup>
+
+</Project>
