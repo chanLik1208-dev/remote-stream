@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- v1 整個 app 都是 Windows-only(見計畫),測試專案跟著目標 net10.0-windows,
+         這樣才能直接測 RdpB.Core.Windows(DPAPI/憑證)這類元件,不用另外切兩個測試專案。 -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RdpB.Core\RdpB.Core.csproj" />
+    <ProjectReference Include="..\..\src\RdpB.Core.Windows\RdpB.Core.Windows.csproj" />
+    <ProjectReference Include="..\..\src\RdpB.Host\RdpB.Host.csproj" />
+    <ProjectReference Include="..\..\src\RdpB.Client\RdpB.Client.csproj" />
+    <ProjectReference Include="..\..\src\RdpB.App\RdpB.App.csproj" />
+  </ItemGroup>
+
+  <!-- CaptureEncoder/Decoder 真的跑起來的測試(HostListenerServiceStreamingTests 這類)要
+       找得到 ffmpeg 的 shared DLL——FfmpegRuntime 找的是「自己旁邊的 ffmpeg\」資料夾,正式
+       發布的 dist\ffmpeg\ 有這份,但測試主機(testhost.exe)的輸出目錄本來沒有。這裡從 dist\
+       複製過去,找不到就跳過(開發機沒先手動下載過 ffmpeg shared build 時,這些測試會自然
+       失敗在「找不到 ffmpeg」,不會假裝成功)。 -->
+  <Target Name="CopyFfmpegForTests" AfterTargets="Build" Condition="Exists('$(MSBuildThisFileDirectory)..\..\dist\ffmpeg')">
+    <ItemGroup>
+      <FfmpegDlls Include="$(MSBuildThisFileDirectory)..\..\dist\ffmpeg\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FfmpegDlls)" DestinationFolder="$(OutDir)ffmpeg\" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

@@ -1,0 +1,149 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RdpB.App.ViewModels"
+        x:Class="RdpB.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="RDP-B(Better)專案"
+        Width="820" Height="560" MinWidth="520" MinHeight="400">
+
+  <DockPanel>
+  <TabControl Margin="12">
+
+    <!-- ═══════ 裝置清單(計畫 §8 主畫面)═══════ -->
+    <TabItem Header="裝置">
+      <DockPanel>
+        <!-- 新增裝置列 -->
+        <Border DockPanel.Dock="Top" Padding="0,0,0,12">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBox Watermark="名稱(可留空用位址代替)" Width="180" Text="{Binding NewDeviceName}" />
+            <TextBox Watermark="位址,例如 192.168.0.50" Width="200" Text="{Binding NewDeviceAddress}" />
+            <Button Content="＋ 新增" Command="{Binding AddDeviceCommand}" />
+          </StackPanel>
+        </Border>
+
+        <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,0" Text="{Binding StatusMessage}"
+                   Foreground="Gray" FontSize="12" />
+
+        <ScrollViewer>
+          <ItemsControl ItemsSource="{Binding Devices}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:DeviceCardViewModel">
+                <Border Margin="6" Padding="14" Width="220" CornerRadius="8"
+                        BorderBrush="Gray" BorderThickness="1">
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="15" />
+                    <TextBlock Text="{Binding HostAddress}" Foreground="Gray" FontSize="12" />
+                    <TextBlock Text="{Binding StatusText}" FontSize="12" />
+                    <TextBlock Text="{Binding LastConnectedText}" Foreground="Gray" FontSize="11" />
+                    <!-- 卡片自己的指令(見 DeviceCardViewModel 類別上的註解:不要用
+                         $parent[...].((vm:Type)DataContext) 這種跨層 binding,PublishSingleFile
+                         建置下會直接當掉)。 -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                      <Button Content="連線" Command="{Binding ConnectCommand}" IsEnabled="{Binding !IsConnecting}" />
+                      <Button Content="測試連線" Command="{Binding TestConnectivityCommand}" />
+                      <Button Content="移除" Command="{Binding RemoveCommand}" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
+    </TabItem>
+
+    <!-- ═══════ 本機當 Host(計畫 §8)═══════ -->
+    <TabItem Header="Host">
+      <StackPanel Spacing="16" MaxWidth="420" HorizontalAlignment="Left"
+                  DataContext="{Binding Host}" x:DataType="vm:HostViewModel">
+
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button Content="啟動 Host" Command="{Binding ToggleHostCommand}" IsVisible="{Binding !IsRunning}" />
+          <Button Content="停止 Host" Command="{Binding ToggleHostCommand}" IsVisible="{Binding IsRunning}" />
+        </StackPanel>
+
+        <StackPanel IsVisible="{Binding IsRunning}" Spacing="8">
+          <Border Padding="14" CornerRadius="8" BorderBrush="Gray" BorderThickness="1">
+            <StackPanel Spacing="6">
+              <TextBlock FontWeight="Bold" Text="{Binding Pin, StringFormat='配對 PIN:{0}'}" FontSize="18" />
+              <TextBlock Text="{Binding Port, StringFormat='監聽埠:{0}(TCP+TLS)'}" />
+              <TextBlock Text="{Binding ConnectedClientCount, StringFormat='目前連線數:{0}'}" />
+            </StackPanel>
+          </Border>
+          <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                      Text="配對驗證、串流 Session 都還沒接上這個面板——目前只證明連得進來,不是真的能開始操作(見 docs/PROTOCOL.md)。" />
+        </StackPanel>
+
+        <StackPanel IsVisible="{Binding !IsRunning}">
+          <TextBlock Foreground="Gray" Text="Host 目前沒有在跑,開啟後這台機器可以被其他裝置連線。" />
+        </StackPanel>
+
+      </StackPanel>
+    </TabItem>
+
+    <!-- ═══════ 設定(計畫 §8,傳輸/畫質)═══════ -->
+    <TabItem Header="設定">
+      <StackPanel Spacing="16" MaxWidth="420" HorizontalAlignment="Left"
+                  DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel">
+
+        <!-- 第一層:連線方式(只有「直連/透過代理」兩個選項,auto/tcp/ws 這些實作細節
+             不讓使用者直接選)。 -->
+        <StackPanel Spacing="4">
+          <TextBlock Text="連線方式" FontWeight="Bold" />
+          <ComboBox ItemsSource="{Binding AvailableConnectionKinds}" SelectedItem="{Binding ConnectionKind}" />
+        </StackPanel>
+
+        <!-- 第二層:只有選「透過代理」才會出現,問要用訂閱連結還是匯入設定檔。 -->
+        <StackPanel Spacing="4" IsVisible="{Binding IsProxyMode}">
+          <TextBlock Text="代理設定方式" FontWeight="Bold" />
+          <ComboBox ItemsSource="{Binding AvailableProxySourceKinds}" SelectedItem="{Binding ProxySourceKind}" />
+
+          <StackPanel Spacing="4" Margin="0,8,0,0" IsVisible="{Binding IsSubscriptionSource}">
+            <TextBlock Text="訂閱連結" />
+            <TextBox Watermark="https://..." Text="{Binding ProxySubscriptionUrl}" />
+          </StackPanel>
+
+          <StackPanel Spacing="4" Margin="0,8,0,0" IsVisible="{Binding IsConfigFileSource}">
+            <TextBlock Text="設定檔" />
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Content="瀏覽..." Command="{Binding BrowseConfigFileCommand}" />
+              <TextBox Watermark="尚未選擇檔案" Text="{Binding ProxyConfigFilePath}" IsReadOnly="True" />
+            </DockPanel>
+          </StackPanel>
+
+          <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                     Text="節點解析還沒做,目前先存起來(見 docs/PROTOCOL.md 的已知缺口)。" />
+        </StackPanel>
+
+        <!-- §7 的偽裝開關只在 DIRECT 才出現,不是只停用而已。 -->
+        <CheckBox Content="DIRECT 時自動套用 RDP 連線偽裝(§7)" IsChecked="{Binding RdpCamouflageWhenDirect}"
+                  IsVisible="{Binding IsDirectMode}" />
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="影像 fps" FontWeight="Bold" />
+          <ComboBox ItemsSource="{Binding AvailableFpsOptions}" SelectedItem="{Binding Fps}" />
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="位元率(Kbps)" FontWeight="Bold" />
+          <NumericUpDown Value="{Binding BitrateKbps}" Minimum="1000" Maximum="100000" Increment="1000" />
+        </StackPanel>
+
+        <CheckBox Content="縮小/關閉視窗時自動收到系統匣(取消勾選則直接結束程式)"
+                  IsChecked="{Binding MinimizeToTray}" />
+
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="儲存設定" Command="{Binding SaveCommand}" />
+          <TextBlock Text="{Binding SavedMessage}" VerticalAlignment="Center" Foreground="Gray" />
+        </StackPanel>
+      </StackPanel>
+    </TabItem>
+
+  </TabControl>
+  </DockPanel>
+</Window>

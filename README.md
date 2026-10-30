@@ -1,137 +1,97 @@
-# remote-stream — 自架低延遲遊戲串流(類 GeForce Now）
+# RDP-B — 自架低延遲遠端桌面/串流
 
-在你的 **RTX 4070** 主機上跑遊戲,用 **NVENC 硬體編碼**把畫面串到另一台 Windows,
-客戶端 **NVDEC 硬解**顯示,並把鍵盤/滑鼠**即時回傳注入**到主機。區網下可到 ~20–50ms
-glass-to-glass,體感接近 GeForce Now / Parsec。
+前身是 **remote-stream**(ffmpeg NVENC/NVDEC 子行程版),現在整個從零重寫成
+**RDP-B**:自製 Win32 視窗 + FFmpeg 函式庫(不再開 ffplay 子行程)、不綁死 NVIDIA、
+有加密配對、支援代理(VLESS 等),修掉舊版操作端容易卡鍵的問題。舊版 Track A 的
+設計與限制留在 git 歷史裡可查。
 
 ```
-[主機 PC]  ddagrab 擷取 → NVENC 編碼 → SRT/UDP ─────► [客戶端 PC]  接收 → NVDEC 解碼 → 顯示
-   ▲  SendInput 注入 ◄──── UDP 輸入封包 ◄──────────────  全域 hook 擷取鍵鼠
+[Host]   libavfilter ddagrab(D3D11 texture)
+         → avcodec 編碼器自動挑選(nvenc → amf → qsv → libx264)
+         WASAPI loopback → Opus          ┐
+         SendInput / ViGEm ← 輸入        ├─ Session(多工訊息)─ Transport ─┐
+[Client] Win32 視窗 + D3D11VA 硬解(任何 GPU,失敗退回軟解)                 │
+         焦點式 Raw Input → 輸入          ┘                              │
+Transport:TCP+TLS(mTLS)現已可用;QUIC 直連(預設優先)架構已就位但 Host 端
+          尚未開 QUIC listener;可經 SOCKS5 / HTTP CONNECT 代理
 ```
 
 ---
 
-## 兩條路線
+## 目前狀態(2026-10-30)
 
-| | Track A（本專案目前）| Track B（升級版）|
-|---|---|---|
-| 影像引擎 | ffmpeg NVENC + ffplay NVDEC | 原生 C++ DXGI→NVENC 零拷貝 + 自訂 UDP |
-| 需安裝 | 無（你已有 ffmpeg + .NET 10）| VS Build Tools + CMake + vcpkg |
-| 延遲 | 低（區網 ~20–50ms）| 最低（省去 ffplay 緩衝與封裝開銷）|
-| 狀態 | ✅ 可用 | 🔜 規劃中，見 ROADMAP |
+這是**正在進行中的重寫**,不是成品。以下是老實列出的現況,不是願望清單。
 
-先用 Track A 玩起來，確定體驗與網路 OK，再決定要不要做 Track B。
+### 已經真的能動、有測試驗證的部分
+- ✅ **Transport**:`RdpB.Core` 的訊息格式、`Session` 多工、`TcpTlsTransport`
+  (mTLS,`SslStream` 雙向憑證驗證)、SOCKS5/HTTP CONNECT 代理握手。
+- ✅ **配對/加密**:自簽憑證(DPAPI 加密存放)、6 位數 PIN 配對流程(`PairingService`/
+  `PairingCoordinator`)已經接上實際網路層,不只是計算邏輯——Host/Client 都會驗證
+  *實際 TLS 連線上的對方憑證*,不是自報的。配對成功後指紋釘選,之後連線走
+  mTLS + 指紋比對,不用再輸入 PIN。
+- ✅ **Host 端串流**:配對成功後 `CaptureEncoder`(`ddagrab` 擷取 + 編碼器自動挑選)/
+  `AudioCapturer`/`Injector` 全部接上 `Session`,真的會開始串流、注入鍵鼠。
+- ✅ **Client 端串流視窗**:`RdpB.Client.StreamWindow` 是真的 Win32 視窗(自己的
+  訊息迴圈執行緒,GDI `StretchDIBits` letterbox 繪製),接上
+  `Decoder`(D3D11VA 硬解,失敗退回軟解)/`AudioPlayer`/`InputCaptureController`。
+  熱鍵走 `RegisterHotKey`:切換控制、切換滑鼠模式、退出。
+- ✅ **Avalonia GUI**:裝置清單、「連線」按鈕觸發完整的連線→配對(跳 PIN 對話框)
+  →開串流視窗流程、Host 開關、基本設定頁。
+- ✅ 單元測試(fast suite)139 個全綠,涵蓋 frame 編解碼、代理握手、配對 HMAC、
+  `HostListenerService` 併發/心跳逾時行為等。另有 `Category=Hardware` 的整合測試
+  (需要真實 GPU/互動桌面),涵蓋 Host 端到端串流、Client 端真正開視窗+解碼+配對
+  全流程,本機驗證通過。
 
----
-
-## 下載
-
-到 **[Releases](https://github.com/chanLik1208-dev/remote-stream/releases)** 拿打包好的執行檔，兩台都放同一份：
-
-| 檔案 | 內容 | 選它的時機 |
-|---|---|---|
-| **`RemotePlay-with-ffmpeg.zip`** | `RemotePlay.exe` ＋ ffmpeg ＋ ffplay ＋ 啟動 bat | 解壓就能跑，什麼都不用裝 |
-| **`RemotePlay.exe`** | 只有主程式（自帶 .NET runtime） | 你已經有 ffmpeg，或不想碰 GPL 授權 |
-
-`RemotePlay.exe` 本身**沒有內嵌 ffmpeg**，是以子行程呼叫外部的 `ffmpeg.exe`。
-若下載的是乾淨版，執行 `./Bundle-Ffmpeg.ps1` 把 ffmpeg 複製到 exe 旁的 `ffmpeg\` 即可（或讓它留在 PATH 上）。
-
-> 打包版內含的 ffmpeg 為 GPLv3 建置，散布相關的授權與對應原始碼位置見
-> [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
-
-## 需求
-- **主機端**：Windows + NVIDIA GPU（NVENC）、ffmpeg 在 PATH、.NET SDK。已驗證：RTX 4070 / ffmpeg 7.0 / .NET 10。
-- **客戶端**：Windows + NVIDIA GPU（NVDEC，硬解；沒有也能軟解）、ffmpeg(含 ffplay) 在 PATH、.NET SDK。
-- 兩台在**同一區網**最佳。跨網路請看下方「跨網路」。
-
-## 快速開始（單一 exe）
-
-打包後的 `dist\RemotePlay.exe` **自帶 .NET runtime**，拷到第二台 Windows 不用裝 .NET。
-執行過 `./Bundle-Ffmpeg.ps1` 後，`dist\ffmpeg\` 內含 `ffmpeg.exe`/`ffplay.exe`，exe 會**自動使用內建那份**，
-所以 **整個 `dist\` 資料夾拷到別台就能跑，連 ffmpeg 都不用另外裝**（exe 會先找旁邊的 `ffmpeg\`，再退回 PATH）。
-
-- **雙擊 `RemotePlay.exe`** → 互動選單（選主機/客戶端、輸入 IP）。
-- 或命令列：
-  ```
-  RemotePlay.exe host                       # 主機（跑遊戲那台）
-  RemotePlay.exe client --host 192.168.0.50 # 客戶端（操作那台）
-  ```
-- 或用 PowerShell 包裝（方便調參數，會自動建置 exe）：`./Host.ps1` / `./Client.ps1 -HostIP <ip>`
-
-一顆 exe 同時處理：影像(NVENC/NVDEC)、鍵鼠、FPS 相對滑鼠、音訊、手把、UPnP。
-
-## 用 PowerShell 腳本（進階調參）
-
-### 0. 先在單機自測（強烈建議）
-在**主機**上開兩個 PowerShell 視窗，一個當 host、一個用 127.0.0.1 當 client，確認畫面通：
-```powershell
-# 視窗 A（只測影像，不含輸入）
-./Host.ps1 -NoInput
-# 視窗 B
-./Client.ps1 -HostIP 127.0.0.1 -NoInput
-```
-會看到一個視窗顯示你自己的桌面（畫中畫是正常的）。能看到就代表編碼→傳輸→解碼全通。
-
-### 1. 主機端（跑遊戲那台）
-```powershell
-./Host.ps1
-# 常用參數：
-#   -Codec h264|hevc|av1   預設 h264（相容性最好；hevc/av1 同畫質更省頻寬）
-#   -Bitrate 30M           位元率（區網 1080p60 建議 20–50M）
-#   -Fps 60                幀率
-#   -Latency 30            SRT 緩衝(ms)，越低越即時但越怕丟包
-#   -Monitor 0             要串哪個螢幕
-#   -NoInput               只串影像、不開輸入注入伺服器
-```
-記住主機的區網 IP（`ipconfig`）。
-
-### 2. 客戶端（操作那台）
-```powershell
-./Client.ps1 -HostIP 192.168.x.x
-#   -Fullscreen            全螢幕
-#   -NoInput               只看畫面、不回傳鍵鼠
-#   其餘 -Codec/-Latency 需與主機一致
-```
-
-### 3. 操作
-- 客戶端視窗開著時，按 **F8** 切換「控制主機」開/關。
-- **ON**：你的鍵鼠會控制主機、並在本機被攔截（避免同時動到本機）。
-- **OFF**：恢復操作本機。
-- 緊急脫困：再按一次 **F8**；或 **Ctrl+Alt+Del**（系統層級，永遠有效）。
+### 還沒做 / 已知缺口(不是藏起來,是刻意列出來)
+- ⚠️ **Host 端沒有 QUIC listener**——只監聽 TCP+TLS,所以 Client 目前直接走
+  TCP+TLS,不透過會先試 QUIC 的 `TransportConnector`。架構(`System.Net.Quic`)
+  已經在 `RdpB.Core` 裡,只是 Host 端還沒接上監聽那一半。
+- ⚠️ **§7 的 RDP 外觀偽裝(直連時的流量偽裝)尚未實作**。
+- ⚠️ **WebSocket+TLS transport 完全沒實作**。
+- ⚠️ **「連線中斷,正在重連…」疊字覆蓋層**目前只用串流視窗的標題列文字反映現況,
+  沒有真正畫覆蓋層;也沒有保留最後一幀畫面的機制。
+- ⚠️ **多個串流視窗同時開著**:目前允許同時連多台、開多個串流視窗,沒有刻意擋
+  (比原計畫「只能連一台,第二次變切換過去」更寬鬆,還沒造成問題但不是刻意設計)。
+- ⚠️ **設定頁的代理網址**(`SettingsViewModel.Save()`)還沒接到
+  `TransportSettings.ProxyUrl`,目前只存訂閱網址/設定檔路徑。
+- ⚠️ **無人值守**(開機就能連、看得到登入畫面、過 UAC)完全沒做,刻意留給之後
+  獨立的 `RdpB.UnattendedService` 專案——現有架構本來就不會鎖本機畫面、不會登出
+  使用者,只是「本機要有人已經登入、桌面要是亮的」才看得到/操作得到。
+- ⚠️ **兩台實體機器的真實延遲/手感測試還沒做**,目前都是單機 127.0.0.1 自連驗證。
+- 更細的協定層缺口清單(哪些 `MessageType` 的 payload 格式還沒定案等)見
+  [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 15 節——**但那份文件寫於配對網路層/
+  Host 串流接線完成之前**,裡面列的「配對網路層沒串起來」「mTLS 細節沒落地」
+  這幾條目前已經做完,以上面這份清單為準,PROTOCOL.md 之後會再核對更新。
 
 ---
 
-## 目前能做 / 限制
-- ✅ 螢幕串流（H.264/HEVC/AV1，NVENC/NVDEC 硬體）
-- ✅ 鍵盤 + 滑鼠 + 滾輪 + 側鍵，UDP 即時注入
-- ✅ **FPS 相對滑鼠**（Raw Input + 相對注入，不重置游標）— F9 切換絕對/相對
-- ✅ **音訊**（WASAPI loopback → Opus → 播放，免裝虛擬音效線）
-- ✅ **手把**（客戶端 XInput → 主機虛擬 Xbox360，需主機裝 **ViGEmBus** 驅動）
-- ✅ **UPnP 自動開埠**（跨網路，`-UPnP`）
-- ⚠️ 有些**反作弊遊戲**會擋 SendInput 注入的輸入（Parsec 也有同樣限制）。
-- ⚠️ 若遊戲以**系統管理員**執行，主機端也要以管理員執行才注入得進去。
-- ⚠️ Desktop Duplication 需在**互動桌面工作階段**執行（不能當 Windows 服務跑）。
-- ⚠️ 音訊需主機輸出裝置為 **48kHz**（Windows 音效設定，多數預設即是）；非 48k 會自動重取樣。
-- 🎮 手把需在**主機**安裝 ViGEmBus：https://github.com/ViGEm/ViGEmBus/releases
+## 專案結構
 
-## 跨網路（非區網）
-- 主機需在路由器把 **影像埠（預設 9000）** 與 **輸入埠（預設 9001）** 轉發到主機。
-- SRT 本身抗丟包，適合網路環境；把 `-Latency` 調到 60–120 視線路而定。
-- 或改用 WireGuard/Tailscale 把兩台拉進同一虛擬網段，再照區網用法。
-
-## 檔案結構
 ```
-remote-stream/
-  RemotePlay 一鍵啟動 = dist\RemotePlay.exe（雙擊或 CLI）
-  Host.ps1 / Client.ps1   PowerShell 包裝（調參數用，會自動建置 exe）
-  Resolve-Exe.ps1         找/建 RemotePlay.exe
-  Bundle-Ffmpeg.ps1       把 ffmpeg/ffplay 打包進 dist\ffmpeg\（整包免裝）
-  Test-Loopback.ps1       單機影像自測
-  Open-Ports.ps1          UPnP 自動開/關路由器埠
-  input/                  C#(.NET 10) 原始碼（Program/Media/Gamepad/Audio.cs）
-  dist/                   打包成品：RemotePlay.exe + ffmpeg\（可整包拷走）
-  ROADMAP.md              後續（靈敏度校準 / HUD / GUI / Track B 原生 C++）
-  README.md
+rdp-b.slnx
+src/
+  RdpB.Core           訊息格式、Session 多工、Transport、代理握手、配對/憑證釘選(不碰 Windows API)
+  RdpB.Core.Windows   設定檔(config.json)、憑證存放(DPAPI)
+  RdpB.Host           擷取(ddagrab)+ 編碼、音訊擷取、輸入注入、手把
+  RdpB.Client         Win32 串流視窗、解碼(D3D11VA/軟解)、輸入擷取、音訊播放
+  RdpB.App            單一 exe:Avalonia GUI + host/client/pair 子命令
+tests/RdpB.Tests      xUnit;[Trait("Category","Hardware")] 標記需要真實 GPU/桌面的整合測試
+docs/PROTOCOL.md      線路協定參考文件(給之後要寫 Swift/macOS client 的人看)
 ```
 
-詳見 [ROADMAP.md](ROADMAP.md)。
+## 開發/測試
+
+```powershell
+dotnet test --filter "Category!=Hardware"   # 快速單元測試,CI 可跑
+dotnet test --filter "Category=Hardware"    # 需要真實 GPU + 互動桌面,本機跑
+```
+
+目前還沒有打包/發行腳本(舊版的 `Host.ps1`/`Client.ps1`/`Bundle-Ffmpeg.ps1` 等已經
+隨重寫移除,邏輯已經在 `RdpB.App` 裡原生實作)。單一 exe 打包、FFmpeg shared DLL
+體積驗證見計畫文件,還在後續階段。
+
+## 授權
+
+本專案綁定 FFmpeg(GPLv3 build),散布相關授權與對應原始碼位置見
+[`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) 與
+[`LICENSE-GPLv3-ffmpeg.txt`](./LICENSE-GPLv3-ffmpeg.txt)。

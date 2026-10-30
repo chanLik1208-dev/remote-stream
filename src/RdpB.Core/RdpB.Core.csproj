@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 不碰 Windows API,為之後的 Mac 版保留 -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>RdpB.Core</RootNamespace>
+    <!-- System.Net.Quic 標成只在 linux/macOS/windows 受支援——這三個涵蓋了我們實際要跑的所有平台
+         (之後的 Mac 版也在內),CA1416 在這裡是假警報,不是真的 Windows-only API。 -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+</Project>
