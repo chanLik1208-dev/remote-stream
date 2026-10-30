@@ -1,13 +1,13 @@
-# 打包產物：RemotePlay.exe 111MB 超過 GitHub 單檔 100MB 上限
-# ffmpeg.exe 為 GPL 二進位，不隨原始碼散布
+bin/
+obj/
 dist/
-
-# .NET 建置產物
-[Bb]in/
-[Oo]bj/
 *.user
-*.suo
-
-# 本機設定 / 日誌
-*.log
-config.local.*
+.vs/
+_quiccheck/
+_capture-probe/
+_ffmpeg-dl/
+_probe2/
+_probe3/
+_e2e-probe/
+_audio-probe/
+_quic-probe/

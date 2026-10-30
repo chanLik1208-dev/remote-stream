@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RdpB.App/RdpB.App.csproj" />
+    <Project Path="src/RdpB.Client/RdpB.Client.csproj" />
+    <Project Path="src/RdpB.Core.Windows/RdpB.Core.Windows.csproj" />
+    <Project Path="src/RdpB.Core/RdpB.Core.csproj" />
+    <Project Path="src/RdpB.Host/RdpB.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RdpB.Tests/RdpB.Tests.csproj" />
+  </Folder>
+</Solution>

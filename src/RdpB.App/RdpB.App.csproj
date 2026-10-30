@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>RdpB</AssemblyName>
+    <RootNamespace>RdpB.App</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- 實測發現 PublishSingleFile 跟 System.Net.Quic 的 msquic.dll 處不來:就算開了
+         IncludeNativeLibrariesForSelfExtract,msquic.dll 還是不會被自我解壓(Skia/HarfBuzz
+         這些 Avalonia 的原生庫會,msquic 不會,原因不明——可能跟它要被當成 Schannel 的
+         加密提供者載入的方式有關)。不塞單一 exe、直接讓 msquic.dll 跟著一般的
+         self-contained 發布落地當一般檔案,QUIC 才真的連得起來(已經實測確認)。反正
+         dist\ffmpeg\ 本來就是旁邊一包 DLL,不是真的「單一檔案」,拿掉 PublishSingleFile
+         不算真的退步。打包指令見 ROADMAP 或 README,不加 -p:PublishSingleFile=true。 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RdpB.Core\RdpB.Core.csproj" />
+    <ProjectReference Include="..\RdpB.Core.Windows\RdpB.Core.Windows.csproj" />
+    <ProjectReference Include="..\RdpB.Host\RdpB.Host.csproj" />
+    <ProjectReference Include="..\RdpB.Client\RdpB.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.6" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.95.2" />
+  </ItemGroup>
+
+</Project>

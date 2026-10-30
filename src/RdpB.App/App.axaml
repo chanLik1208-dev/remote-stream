@@ -1,0 +1,25 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="RdpB.App.App"
+             RequestedThemeVariant="Default">
+  <!-- RequestedThemeVariant="Default" 跟著系統淺色/深色走(計畫 §8)。 -->
+
+  <Application.Styles>
+    <FluentTheme />
+  </Application.Styles>
+
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <!-- 淺色主題用陰影表現層次,深色主題改用「表面越高越亮」——計畫 §8 動態與明暗那一節,
+             Avalonia adapter 真正的 token 細節等那塊動手時再補,這裡先放最基本的強調色。 -->
+        <ResourceDictionary x:Key="Light">
+          <Color x:Key="RdpBAccent">#2F6FED</Color>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <Color x:Key="RdpBAccent">#5B8DEF</Color>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>
