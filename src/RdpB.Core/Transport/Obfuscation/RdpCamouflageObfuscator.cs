@@ -16,6 +16,12 @@ public sealed class RdpCamouflageObfuscator : IObfuscator
 {
     public string Name => "rdp";
 
+    /// <summary>TPKT header 的第一個 byte 固定是版本號 3——跟任何合法的 TLS record(第一個
+    /// byte 是 content type,20~23 之間)完全不會混到,<see cref="TcpTlsTransportListener"/>
+    /// 用這個來自動判斷一個進來的連線有沒有在套 RDP 偽裝的握手,不用另外約定埠號才能分辨
+    /// (見 Kyra 要求的改動:偽裝的核心價值是握手外觀,不是硬要佔用 3389 這個埠號本身)。</summary>
+    public const byte TpktVersionByte = 0x03;
+
     // PROTOCOL_SSL,RDP_NEG_REQ/RSP 的 requestedProtocols/selectedProtocol 都用這個值,
     // 表示「協商完就切 TLS」——這是真實 RDP 用來宣告走 TLS 安全層的標準值。
     private const uint ProtocolSsl = 0x00000001;

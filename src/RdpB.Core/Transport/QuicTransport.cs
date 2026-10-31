@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Quic;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using RdpB.Core.Protocol;
 
@@ -30,6 +31,11 @@ public sealed class QuicTransport : ITransport
 
     public bool IsConnected => !_closed;
 
+    /// <summary>對面在 QUIC/TLS handshake 時實際出示的憑證(mTLS)——跟
+    /// <see cref="TcpTlsTransport.RemoteCertificate"/> 同一個用途,配對驗證(計畫 §2)
+    /// 要用這個,不能信 Pair 訊息裡自稱的指紋。</summary>
+    public X509Certificate2? RemoteCertificate { get; }
+
     public event MessageReceivedHandler? MessageReceived;
     public event Action<Exception?>? Disconnected;
 
@@ -39,6 +45,8 @@ public sealed class QuicTransport : ITransport
     private QuicTransport(QuicConnection connection, QuicStream reliableStream)
     {
         _connection = connection;
+        RemoteCertificate = connection.RemoteCertificate as X509Certificate2
+            ?? (connection.RemoteCertificate is null ? null : new X509Certificate2(connection.RemoteCertificate));
         _reliablePump = new FrameStreamPump(reliableStream, _reliableQueue);
         _reliablePump.MessageReceived += (ch, type, payload) => MessageReceived?.Invoke(ch, type, payload);
         _reliablePump.Faulted += ex => _ = FailAsync(ex);
@@ -50,24 +58,31 @@ public sealed class QuicTransport : ITransport
         string host,
         int port,
         Func<X509Certificate2?, bool> validateServerCertificate,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        X509Certificate2? clientCertificate = null)
     {
+        var clientAuthOptions = new SslClientAuthenticationOptions
+        {
+            TargetHost = host,
+            ApplicationProtocols = [Alpn],
+            RemoteCertificateValidationCallback = (_, cert, _, _) =>
+                validateServerCertificate(cert is null ? null : new X509Certificate2(cert)),
+        };
+        // mTLS,跟 TcpTlsTransport.ConnectAsync 同一個用途(計畫 §2 的配對需要 Host
+        // 看到 Client 實際出示的憑證)——沒傳就是單向 TLS,舊行為不變。
+        if (clientCertificate is not null)
+            clientAuthOptions.ClientCertificates = [clientCertificate];
+
         var clientOptions = new QuicClientConnectionOptions
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.Parse(ResolveToIp(host)), port),
+            RemoteEndPoint = new IPEndPoint(await ResolveToIpAsync(host, ct).ConfigureAwait(false), port),
             DefaultStreamErrorCode = 0,
             DefaultCloseErrorCode = 0,
             // 預設是 0(不接受任何對方開的 stream)。對方可能用一條額外的雙向 stream(目前沒用到,
             // 保留餘裕)和很多單向 stream(Audio/Video,§1)回送給我們,兩種都要留夠名額。
             MaxInboundBidirectionalStreams = 4,
             MaxInboundUnidirectionalStreams = 256,
-            ClientAuthenticationOptions = new SslClientAuthenticationOptions
-            {
-                TargetHost = host,
-                ApplicationProtocols = [Alpn],
-                RemoteCertificateValidationCallback = (_, cert, _, _) =>
-                    validateServerCertificate(cert is null ? null : new X509Certificate2(cert)),
-            },
+            ClientAuthenticationOptions = clientAuthOptions,
         };
 
         var connection = await QuicConnection.ConnectAsync(clientOptions, ct).ConfigureAwait(false);
@@ -236,8 +251,27 @@ public sealed class QuicTransport : ITransport
 
     public async ValueTask DisposeAsync() => await CloseAsync().ConfigureAwait(false);
 
-    /// <summary>QuicClientConnectionOptions.RemoteEndPoint 要一個 IPEndPoint,這裡先只支援直接給 IP 或
-    /// loopback 名稱;真正的主機名解析(配對紀錄存的是名稱時)留給呼叫端在呼叫前自己做 DNS 查詢。</summary>
-    private static string ResolveToIp(string host) =>
-        host is "localhost" ? "127.0.0.1" : host;
+    /// <summary>QuicClientConnectionOptions.RemoteEndPoint 要一個 IPEndPoint,不像 TcpClient.ConnectAsync
+    /// 那樣接受主機名字串自己做 DNS——以前這裡直接 <c>IPAddress.Parse(host)</c>,host 只要不是純 IP
+    /// (配對紀錄存的通常是裝置名稱/網域,例如 DDNS 的 <c>xxx.netip.genius427.site</c>)就會直接丟
+    /// <c>FormatException("An invalid IP address was specified.")</c>——這是真的在 Kyra 機器上炸出來的
+    /// 坑,表現成「QUIC 連線失敗」然後自動退回 TCP+TLS,HUD 上完全看不出真正原因是「根本沒做過 DNS
+    /// 解析」。現在先判斷是不是已經是合法 IP(直連區網常見),不是的話才真的呼叫 <see cref="Dns"/> 查詢,
+    /// 優先選 IPv4(QUIC/UDP 走 IPv6 在很多家用路由器/ISP 上還是不穩),查不到就讓例外自然往外飄,
+    /// 外層的 Auto 模式會照常把這個失敗原因顯示出來、退回 TCP+TLS。</summary>
+    private static async Task<IPAddress> ResolveToIpAsync(string host, CancellationToken ct)
+    {
+        if (host == "localhost") return IPAddress.Loopback;
+        if (IPAddress.TryParse(host, out var literal)) return literal;
+
+        var addresses = await Dns.GetHostAddressesAsync(host, ct).ConfigureAwait(false);
+        if (addresses.Length == 0)
+            throw new SocketException((int)SocketError.HostNotFound);
+
+        foreach (var addr in addresses)
+            if (addr.AddressFamily == AddressFamily.InterNetwork)
+                return addr;
+
+        return addresses[0];
+    }
 }

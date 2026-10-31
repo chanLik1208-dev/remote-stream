@@ -25,7 +25,7 @@ public static class Native
     public const uint RIDEV_INPUTSINK = 0x00000100;
 
     public const int VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12; // MENU = Alt
-    public const int VK_C = 0x43, VK_Q = 0x51, VK_F9 = 0x78;
+    public const int VK_C = 0x43, VK_Q = 0x51, VK_F9 = 0x78, VK_F10 = 0x79;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int left, top, right, bottom; }

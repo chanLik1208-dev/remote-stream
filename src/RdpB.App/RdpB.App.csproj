@@ -11,6 +11,15 @@
     <NoWarn>$(NoWarn);CA1416</NoWarn>
     <InvariantGlobalization>true</InvariantGlobalization>
 
+    <!-- 沒有指定 RuntimeIdentifier 的話,NuGet 不知道要從 Microsoft.Native.Quic.MsQuic.Schannel
+         這個套件的 runtimes/<rid>/native 資料夾拿哪一份 msquic.dll 複製到輸出目錄——就算
+         PackageReference 有加,一般的 dotnet build(framework-dependent,沒指定 RID)還是
+         拿不到這個檔案。指定 win-x64(這個方案目前只支援 Windows)讓它在**一般 Debug
+         build**(不是只有 self-contained 發布)也能把 msquic.dll 複製出來,不用依賴系統
+         剛好有相容版本。不加 SelfContained=true,還是 framework-dependent,體積不會變大。 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+
     <!-- 實測發現 PublishSingleFile 跟 System.Net.Quic 的 msquic.dll 處不來:就算開了
          IncludeNativeLibrariesForSelfExtract,msquic.dll 還是不會被自我解壓(Skia/HarfBuzz
          這些 Avalonia 的原生庫會,msquic 不會,原因不明——可能跟它要被當成 Schannel 的
@@ -19,6 +28,27 @@
          dist\ffmpeg\ 本來就是旁邊一包 DLL,不是真的「單一檔案」,拿掉 PublishSingleFile
          不算真的退步。打包指令見 ROADMAP 或 README,不加 -p:PublishSingleFile=true。 -->
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 見上面 Microsoft.Native.Quic.MsQuic.Schannel 的 PackageReference 上的註解——這個
+         套件自己的 .targets 不會在一般 .NET SDK 專案裡觸發複製,直接點名檔案自己複製。
+         $(PkgMicrosoft_Native_Quic_MsQuic_Schannel) 是 NuGet 看到 GeneratePathProperty="true"
+         自動產生的 MSBuild 屬性,指向這個套件在 NuGet 快取裡解開後的根目錄。 -->
+    <None Include="$(PkgMicrosoft_Native_Quic_MsQuic_Schannel)\build\native\bin\x64\msquic.dll"
+          Condition="Exists('$(PkgMicrosoft_Native_Quic_MsQuic_Schannel)\build\native\bin\x64\msquic.dll')"
+          CopyToOutputDirectory="PreserveNewest" Link="msquic.dll" />
+  </ItemGroup>
+
+  <!-- code review 抓到的坑:上面那個 Condition="Exists(...)" 對不上的話(套件版本之後
+       升級、套件裡的版面換了位置),<None Include> 會直接被跳過,建置照樣成功、完全沒有
+       任何訊號——等於複製一份跟這次要修的「msquic.dll 靜默沒有被打包」一模一樣的坑,只是
+       換了個觸發條件。加一個建置後檢查,真的沒複製到就發 Warning(不是 Error——QUIC 本來
+       就有 TCP+TLS 自動退回,不該讓這個問題直接擋住整個建置),至少不會悄悄回退成舊行為
+       而沒人發現。 -->
+  <Target Name="WarnIfMsQuicDllMissing" AfterTargets="Build">
+    <Warning Condition="!Exists('$(TargetDir)msquic.dll')"
+             Text="msquic.dll 沒有出現在輸出目錄($(TargetDir))——Microsoft.Native.Quic.MsQuic.Schannel 套件的版面可能變了,上面那個手動複製的 ItemGroup 需要跟著更新。QUIC 會連不上(有 TCP+TLS 自動退回,不影響能不能用,但失去了這次修的低延遲路徑),診斷頁會顯示「MsQuic library 載不到」。" />
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\RdpB.Core\RdpB.Core.csproj" />
@@ -34,6 +64,17 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.6" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.95.2" />
+
+    <!-- Kyra 問「打包一個不就好了」——原本只有 self-contained、不加 PublishSingleFile 的
+         Release 發布才會拿到 msquic.dll(見上面 PropertyGroup 裡那段註解),一般的
+         dotnet build/dotnet run(Debug,framework-dependent)完全沒有這個檔案,QUIC
+         在那種情況下必死無疑,表現成診斷頁一直顯示「MsQuic library 載不到」。
+         Microsoft.Native.Quic.MsQuic.Schannel 這個套件本身是給 C++ 專案用的(它的
+         .targets 檔用 $(Platform) 判斷要不要複製,值要是 "x64"/"Win32"/"ARM64"——
+         一般 .NET SDK 專案的 $(Platform) 預設是 "AnyCPU",對不上任何一個條件,所以
+         單純加 PackageReference 完全沒用,這個坑實測確認過)。改成下面 ItemGroup 直接點名
+         要複製的那個檔案,繞開那份壞掉的 .targets 邏輯,自己動手複製。 -->
+    <PackageReference Include="Microsoft.Native.Quic.MsQuic.Schannel" Version="2.6.3" GeneratePathProperty="true" />
   </ItemGroup>
 
 </Project>

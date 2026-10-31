@@ -59,9 +59,10 @@ public class RdpCamouflageObfuscatorTests
     public async Task TcpTlsTransport_WithRdpObfuscator_StillDeliversMessages_EndToEnd()
     {
         var cert = EphemeralCertificate.CreateSelfSigned();
+        // TcpTlsTransportListener 現在自動偵測每個連線是不是套了偽裝(peek 第一個 byte),
+        // 不用另外傳 obfuscator 參數——單一個監聽器天生就能同時接受偽裝過的連線和一般直連。
         using var listener = TcpTlsTransportListener.Start(
-            new IPEndPoint(IPAddress.Loopback, 0), cert,
-            obfuscator: new RdpCamouflageObfuscator(), clientCertificateRequired: false);
+            new IPEndPoint(IPAddress.Loopback, 0), cert, clientCertificateRequired: false);
 
         var acceptTask = listener.AcceptAsync();
 

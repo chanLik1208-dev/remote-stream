@@ -49,6 +49,44 @@ public class ClientStreamWindowTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task ConnectAsync_PreMatchedCorrectFingerprint_StillAsksPinButStrictlyValidatesCertificate()
+    {
+        await using var host = new HostListenerService(_hostConfigPath);
+        host.Start(port: 0);
+
+        // 「允許預匹配模式」:指紋先知道(來自 Host.FingerprintHex,模擬使用者自己信任的
+        // 管道事先拿到的值),PinPairingPending=true——Host 還不認得這個 Client,
+        // PIN 還是要走一次。
+        var record = new PinnedHostRecord
+        {
+            Name = "預匹配測試主機",
+            HostAddress = $"127.0.0.1:{host.Port}",
+            FingerprintHex = host.FingerprintHex!,
+            PinPairingPending = true,
+        };
+        var client = new ClientConnectionService(_clientConfigPath);
+
+        int pinRequested = 0;
+        var result = await client.ConnectAsync(record, () =>
+        {
+            pinRequested++;
+            return Task.FromResult<string?>(host.Pin);
+        });
+
+        try
+        {
+            Assert.Equal(1, pinRequested); // 預匹配不等於跳過配對,還是要問一次 PIN
+            Assert.Equal(ConnectOutcome.Success, result.Outcome);
+            Assert.False(record.PinPairingPending); // 配對做完之後,下次連線不用再問 PIN
+            Assert.Equal(host.FingerprintHex, record.FingerprintHex);
+        }
+        finally
+        {
+            result.Window?.Dispose();
+        }
+    }
+
     public void Dispose()
     {
         if (File.Exists(_hostConfigPath)) File.Delete(_hostConfigPath);

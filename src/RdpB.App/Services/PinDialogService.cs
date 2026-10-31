@@ -24,4 +24,20 @@ public static class PinDialogService
             return await dialog.ShowDialog<string?>(Owner).ConfigureAwait(false);
         });
     }
+
+    /// <summary>Kyra 要求的無人值守加固(見 PinnedHostRecord.RequiresConnectionPassword 上的
+    /// 註解)——已經信任的裝置,每次連線還是要問一次 Host 上設定的連線密碼。跟
+    /// <see cref="RequestPinAsync"/> 共用同一個對話框(輸入一段文字這個互動本身沒有不同,
+    /// 只是提示文字不一樣),不用另外做一個幾乎一模一樣的視窗。</summary>
+    public static Task<string?> RequestConnectionPasswordAsync(string hostName)
+    {
+        if (Owner is null) return Task.FromResult<string?>(null);
+
+        return Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var dialog = new PinDialog();
+            dialog.SetPrompt($"「{hostName}」已經信任這台裝置,但開了連線密碼——請輸入 Host 上設定的連線密碼:");
+            return await dialog.ShowDialog<string?>(Owner).ConfigureAwait(false);
+        });
+    }
 }

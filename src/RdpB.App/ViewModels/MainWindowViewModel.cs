@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RdpB.App.Services;
+using RdpB.App.Views;
 using RdpB.Core.Transport;
 using RdpB.Core.Windows;
 
@@ -26,13 +27,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// Tab 切換,邏輯不變,之後要拆成獨立視窗只是換個 View,ViewModel 不用動)。</summary>
     public SettingsViewModel Settings { get; }
 
-    public HostViewModel Host { get; } = new();
+    public HostViewModel Host { get; }
+
+    public DiagnosticsViewModel Diagnostics { get; }
 
     [ObservableProperty]
     private string _newDeviceName = "";
 
     [ObservableProperty]
     private string _newDeviceAddress = "";
+
+    /// <summary>選填——「允許預匹配模式」:使用者透過自己信任的管道(讀 Host 螢幕上顯示的
+    /// 指紋、電話告知、USB 傳遞……)事先拿到 Host 的憑證指紋,先填在這裡,連線時就不會
+    /// TOFU 先接受再談 PIN,第一次連線就嚴格比對——見 <see cref="AddDevice"/> 和
+    /// <see cref="ClientConnectionService.ConnectAsync"/> 上的註解。留空就是原本的行為。</summary>
+    [ObservableProperty]
+    private string _newDeviceFingerprintHex = "";
 
     [ObservableProperty]
     private string? _statusMessage;
@@ -45,10 +55,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Devices.Add(CreateCard(record));
 
         Settings = new SettingsViewModel(_configPath);
+
+        // 真的坑(不是順手發現就隨便改掉的):這個屬性原本是 `= new()` 的欄位初始化式,
+        // 完全沒帶 _configPath——HostListenerService 內部會各自掉回
+        // ConfigStore.DefaultPath,導致 Host 分頁(配對紀錄、frp 設定)永遠讀寫真正的那份
+        // config.json,不管呼叫端傳進來的 configPath 是什麼。無痕模式能不能真的「不留痕跡」
+        // 直接依賴這裡接得對不對——這個修法不是無痕模式專屬的,任何用自訂 configPath 建構
+        // MainWindowViewModel 的呼叫端(例如測試)都受影響。
+        Host = new HostViewModel(new HostListenerService(_configPath), _configPath);
+        Diagnostics = new DiagnosticsViewModel(_configPath);
     }
 
     private DeviceCardViewModel CreateCard(PinnedHostRecord record) =>
-        new(record, TestConnectivityAsync, RemoveDevice, ConnectAsync);
+        new(record, TestConnectivityAsync, RemoveDevice, ConnectAsync, EditDeviceAsync);
 
     public void Reload()
     {
@@ -77,16 +96,39 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        // FingerprintHex 先留空——要真的配對過(計畫 §2)才會有憑證指紋可以填,
-        // 這裡只是把裝置記下來,還不是「已配對、可信任」的狀態。
-        var record = new PinnedHostRecord { Name = name, HostAddress = address, FingerprintHex = "" };
+        // 預匹配指紋(選填):使用者從自己信任的管道事先拿到的 Host 憑證指紋。SHA-256 雜湊
+        // 固定 32 bytes,Convert.ToHexString 輸出固定 64 個十六進位字元——先做格式檢查,
+        // 打錯字元或長度不對現在就講清楚,不要讓使用者等到連線失敗才一頭霧水不知道哪裡錯。
+        string fingerprintInput = NewDeviceFingerprintHex.Trim().Replace(" ", "").Replace(":", "").ToUpperInvariant();
+        if (fingerprintInput.Length > 0)
+        {
+            if (fingerprintInput.Length != 64 || !fingerprintInput.All(Uri.IsHexDigit))
+            {
+                StatusMessage = "指紋格式不對——應該是 64 個十六進位字元(SHA-256),可以帶冒號或空白分隔,會自動去掉";
+                return;
+            }
+        }
+
+        // PinPairingPending 只有「有預匹配指紋,但還沒真的配對過」這個情況才要設成 true——
+        // 沒填指紋的一般新裝置,PinPairingPending 預設 false 完全沒問題(needsPinExchange
+        // 本來就會因為 FingerprintHex 是空字串而要求配對,見 ClientConnectionService 上的註解)。
+        var record = new PinnedHostRecord
+        {
+            Name = name,
+            HostAddress = address,
+            FingerprintHex = fingerprintInput,
+            PinPairingPending = fingerprintInput.Length > 0,
+        };
         _config.PinnedHosts.Add(record);
         ConfigStore.Save(_config, _configPath);
 
         Devices.Add(CreateCard(record));
         NewDeviceName = "";
         NewDeviceAddress = "";
-        StatusMessage = $"已新增 {name}(尚未配對)";
+        NewDeviceFingerprintHex = "";
+        StatusMessage = fingerprintInput.Length > 0
+            ? $"已新增 {name}(預匹配指紋,第一次連線會嚴格比對,仍需完成一次 PIN 配對)"
+            : $"已新增 {name}(尚未配對)";
     }
 
     /// <summary>傳給 <see cref="DeviceCardViewModel"/> 的 callback,不是 XAML 指令——
@@ -108,7 +150,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         StatusMessage = $"正在連線到 {device.Name}...";
         var service = new ClientConnectionService(_configPath);
 
-        var result = await service.ConnectAsync(device.Record, () => PinDialogService.RequestPinAsync(device.Name));
+        var result = await service.ConnectAsync(device.Record,
+            () => PinDialogService.RequestPinAsync(device.Name),
+            () => PinDialogService.RequestConnectionPasswordAsync(device.Name));
 
         StatusMessage = result.Message;
         if (result.Outcome == ConnectOutcome.Success)
@@ -117,6 +161,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 指紋,但重新整理一次清單確保 LastConnected 等欄位跟著畫面同步。
             Reload();
         }
+    }
+
+    /// <summary>齒輪按鈕的 callback——開 <see cref="EditHostDialog"/> 改名稱/位址/指紋/
+    /// 連線覆寫,直接改 <see cref="DeviceCardViewModel.Record"/> 本身。對話框按「儲存」
+    /// 才會回傳 true,這裡才需要真的存檔;按「取消」或關視窗什麼都不用做,record 本來就
+    /// 沒被動過。跟 <see cref="PinDialogService"/> 共用同一個 Owner(App.axaml.cs 建好
+    /// 主視窗後塞進去的那個),不讓 ViewModel 自己另外持有 Window 參考。</summary>
+    private async Task EditDeviceAsync(DeviceCardViewModel device)
+    {
+        if (PinDialogService.Owner is null) return;
+
+        var dialog = new EditHostDialog(device.Record);
+        var saved = await dialog.ShowDialog<bool>(PinDialogService.Owner).ConfigureAwait(true);
+        if (!saved) return;
+
+        ConfigStore.Save(_config, _configPath);
+        Reload();
+        StatusMessage = $"已更新 {device.Record.Name}";
     }
 
     /// <summary>同樣是傳給卡片的 callback,不是 XAML 指令。</summary>

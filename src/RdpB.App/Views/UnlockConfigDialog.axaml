@@ -1,0 +1,16 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="RdpB.App.Views.UnlockConfigDialog"
+        Title="輸入密碼"
+        Width="340" Height="210" CanResize="False"
+        WindowStartupLocation="CenterScreen">
+  <StackPanel Margin="20" Spacing="12">
+    <TextBlock TextWrapping="Wrap" Text="設定檔已加密,請輸入密碼才能啟動 RDP-B。" />
+    <TextBox Name="PasswordBox" Watermark="密碼" PasswordChar="●" FontSize="16" />
+    <TextBlock Name="ErrorText" Foreground="OrangeRed" FontSize="12" TextWrapping="Wrap" />
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button Name="CancelButton" Content="取消(結束程式)" />
+      <Button Name="UnlockButton" Content="解鎖" IsDefault="True" />
+    </StackPanel>
+  </StackPanel>
+</Window>

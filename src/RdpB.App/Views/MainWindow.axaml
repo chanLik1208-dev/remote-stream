@@ -7,6 +7,12 @@
         Width="820" Height="560" MinWidth="520" MinHeight="400">
 
   <DockPanel>
+  <!-- 全域狀態列(Kyra 回饋:原本只在「裝置」分頁底部才看得到,連線/測試連線的結果
+       切到別的分頁就看不到了,截圖裡常常只截到被裁掉一半的那一行)——移到整個視窗最底部,
+       不管在哪個分頁都看得見,TabControl 本身跟著縮小一點點高度,不用額外彈窗。 -->
+  <Border DockPanel.Dock="Bottom" Padding="12,6" BorderBrush="Gray" BorderThickness="0,1,0,0">
+    <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="Gray" TextWrapping="Wrap" />
+  </Border>
   <TabControl Margin="12">
 
     <!-- ═══════ 裝置清單(計畫 §8 主畫面)═══════ -->
@@ -14,15 +20,20 @@
       <DockPanel>
         <!-- 新增裝置列 -->
         <Border DockPanel.Dock="Top" Padding="0,0,0,12">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <TextBox Watermark="名稱(可留空用位址代替)" Width="180" Text="{Binding NewDeviceName}" />
-            <TextBox Watermark="位址,例如 192.168.0.50" Width="200" Text="{Binding NewDeviceAddress}" />
-            <Button Content="＋ 新增" Command="{Binding AddDeviceCommand}" />
+          <StackPanel Spacing="6">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBox Watermark="名稱(可留空用位址代替)" Width="180" Text="{Binding NewDeviceName}" />
+              <TextBox Watermark="位址,例如 192.168.0.50" Width="200" Text="{Binding NewDeviceAddress}" />
+              <Button Content="＋ 新增" Command="{Binding AddDeviceCommand}" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBox Watermark="選填:預先知道的 Host 指紋(64 字,見 Host 分頁)" Width="388"
+                       Text="{Binding NewDeviceFingerprintHex}" FontFamily="Consolas,monospace" />
+            </StackPanel>
+            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                       Text="填了指紋 = 預匹配模式:第一次連線就嚴格比對憑證,不會先接受再談 PIN(防範設備上有不屬於妳的、能簽發憑證的信任機構)。留空就是原本的「第一次連線先信任,配對時才真正綁定身分」。" />
           </StackPanel>
         </Border>
-
-        <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,0" Text="{Binding StatusMessage}"
-                   Foreground="Gray" FontSize="12" />
 
         <ScrollViewer>
           <ItemsControl ItemsSource="{Binding Devices}">
@@ -33,7 +44,10 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:DeviceCardViewModel">
-                <Border Margin="6" Padding="14" Width="220" CornerRadius="8"
+                <!-- Kyra 回報「突破卡片了」:加了第 4 顆按鈕(編輯)之後,固定 220px 寬的卡片
+                     擠不下一整排 4 顆按鈕,「移除」被擠出邊框外。改成 WrapPanel(擠不下自動
+                     換行,不會再溢出卡片邊界)+ 卡片加寬到 260px 給多一點緩衝。 -->
+                <Border Margin="6" Padding="14" Width="260" CornerRadius="8"
                         BorderBrush="Gray" BorderThickness="1">
                   <StackPanel Spacing="6">
                     <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="15" />
@@ -43,11 +57,12 @@
                     <!-- 卡片自己的指令(見 DeviceCardViewModel 類別上的註解:不要用
                          $parent[...].((vm:Type)DataContext) 這種跨層 binding,PublishSingleFile
                          建置下會直接當掉)。 -->
-                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
-                      <Button Content="連線" Command="{Binding ConnectCommand}" IsEnabled="{Binding !IsConnecting}" />
-                      <Button Content="測試連線" Command="{Binding TestConnectivityCommand}" />
-                      <Button Content="移除" Command="{Binding RemoveCommand}" />
-                    </StackPanel>
+                    <WrapPanel Margin="0,6,0,0">
+                      <Button Content="連線" Margin="0,0,6,6" Command="{Binding ConnectCommand}" IsEnabled="{Binding !IsConnecting}" />
+                      <Button Content="測試連線" Margin="0,0,6,6" Command="{Binding TestConnectivityCommand}" />
+                      <Button Content="編輯" Margin="0,0,6,6" ToolTip.Tip="編輯這台裝置的名稱/位址/連線設定" Command="{Binding EditCommand}" />
+                      <Button Content="移除" Margin="0,0,6,6" Command="{Binding RemoveCommand}" />
+                    </WrapPanel>
                   </StackPanel>
                 </Border>
               </DataTemplate>
@@ -57,91 +72,400 @@
       </DockPanel>
     </TabItem>
 
-    <!-- ═══════ 本機當 Host(計畫 §8)═══════ -->
+    <!-- ═══════ 本機當 Host(計畫 §8,左側分類、右側內容——同樣是 Kyra 回饋「所有都是
+         一直在疊」之後的改法:狀態/frp/已信任裝置原本疊成一條長長的 StackPanel)═══════ -->
     <TabItem Header="Host">
-      <StackPanel Spacing="16" MaxWidth="420" HorizontalAlignment="Left"
-                  DataContext="{Binding Host}" x:DataType="vm:HostViewModel">
+      <Grid ColumnDefinitions="140,*" DataContext="{Binding Host}" x:DataType="vm:HostViewModel">
+        <ListBox Grid.Column="0" ItemsSource="{Binding AvailableCategories}"
+                  SelectedItem="{Binding SelectedCategory}" Margin="0,0,8,0" />
 
-        <StackPanel Orientation="Horizontal" Spacing="12">
-          <Button Content="啟動 Host" Command="{Binding ToggleHostCommand}" IsVisible="{Binding !IsRunning}" />
-          <Button Content="停止 Host" Command="{Binding ToggleHostCommand}" IsVisible="{Binding IsRunning}" />
-        </StackPanel>
+        <ScrollViewer Grid.Column="1">
+        <StackPanel Spacing="16" MaxWidth="460" HorizontalAlignment="Left" Margin="0,0,0,16">
 
-        <StackPanel IsVisible="{Binding IsRunning}" Spacing="8">
-          <Border Padding="14" CornerRadius="8" BorderBrush="Gray" BorderThickness="1">
-            <StackPanel Spacing="6">
-              <TextBlock FontWeight="Bold" Text="{Binding Pin, StringFormat='配對 PIN:{0}'}" FontSize="18" />
-              <TextBlock Text="{Binding Port, StringFormat='監聽埠:{0}(TCP+TLS)'}" />
-              <TextBlock Text="{Binding ConnectedClientCount, StringFormat='目前連線數:{0}'}" />
+          <!-- ── 狀態 ────────────────────────────────────────────── -->
+          <StackPanel Spacing="16" IsVisible="{Binding IsStatusCategory}">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Button Content="{Binding StartButtonText}" Command="{Binding ToggleHostCommand}"
+                      IsVisible="{Binding !IsRunning}" IsEnabled="{Binding !IsStarting}" />
+              <Button Content="停止 Host" Command="{Binding ToggleHostCommand}" IsVisible="{Binding IsRunning}" />
             </StackPanel>
-          </Border>
-          <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
-                      Text="配對驗證、串流 Session 都還沒接上這個面板——目前只證明連得進來,不是真的能開始操作(見 docs/PROTOCOL.md)。" />
-        </StackPanel>
 
-        <StackPanel IsVisible="{Binding !IsRunning}">
-          <TextBlock Foreground="Gray" Text="Host 目前沒有在跑,開啟後這台機器可以被其他裝置連線。" />
-        </StackPanel>
+            <TextBlock Text="{Binding LastError}" IsVisible="{Binding HasLastError}"
+                       Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12" />
 
-      </StackPanel>
+            <Border Padding="14" CornerRadius="8" BorderBrush="Gray" BorderThickness="1">
+              <StackPanel Spacing="6">
+                <TextBlock Text="監聽埠" FontWeight="Bold" />
+                <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                           Text="TCP+TLS/QUIC/RDP 偽裝自動偵測都共用這一個埠。改了要重新啟動 Host 才會套用。" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <NumericUpDown Value="{Binding ListenPortSetting}" Minimum="1" Maximum="65535" Increment="1" FormatString="F0" Width="140" />
+                  <Button Content="儲存" Command="{Binding SaveListenPortCommand}" />
+                  <TextBlock Text="{Binding ListenPortSavedMessage}" VerticalAlignment="Center" Foreground="Gray" FontSize="11" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- 指紋跟著身分憑證走,不是開了 Host 才有——不管有沒有在跑都顯示,讓 Kyra
+                 隨時能把它貼去 Client 端的「預匹配指紋」欄位(見裝置分頁的說明)。 -->
+            <Border Padding="14" CornerRadius="8" BorderBrush="Gray" BorderThickness="1">
+              <StackPanel Spacing="6">
+                <TextBlock Text="本機身分憑證指紋(給預匹配模式用)" FontWeight="Bold" />
+                <TextBox Text="{Binding FingerprintHex}" IsReadOnly="True" FontFamily="Consolas,monospace"
+                         FontSize="12" TextWrapping="Wrap" />
+                <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                           Text="選取後 Ctrl+C 複製,貼到 Client 端新增裝置時的指紋欄位——透過自己信任的管道(當面念、USB、電話)告知,不要透過不信任的網路傳。" />
+              </StackPanel>
+            </Border>
+
+            <StackPanel IsVisible="{Binding IsRunning}" Spacing="8">
+              <Border Padding="14" CornerRadius="8" BorderBrush="Gray" BorderThickness="1">
+                <StackPanel Spacing="6">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock FontWeight="Bold" Text="{Binding Pin, StringFormat='配對 PIN:{0}'}" FontSize="18" VerticalAlignment="Center" />
+                    <Button Content="重新產生" Command="{Binding RegeneratePinCommand}" FontSize="11" />
+                  </StackPanel>
+                  <TextBlock Text="PIN 5 分鐘後自動失效,連續猜錯太多次也會自動作廢重發。" FontSize="11" Foreground="Gray" />
+                  <TextBlock Text="{Binding Port, StringFormat='監聽埠:{0}(TCP+TLS/QUIC 共用,RDP 偽裝自動偵測同埠)'}" />
+                  <TextBlock Text="{Binding ConnectedClientCount, StringFormat='目前連線數:{0}'}" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <StackPanel IsVisible="{Binding !IsRunning}">
+              <TextBlock Foreground="Gray" Text="Host 目前沒有在跑,開啟後這台機器可以被其他裝置連線。" />
+            </StackPanel>
+
+            <!-- Kyra 回饋:「狀態」這頁本身不會顯示 Host 的其他設定狀態——frp/連線密碼/
+                 已信任裝置都要切過去那個分類才看得到目前是開是關。加一個一眼掃過去的概覽,
+                 不用逐個分類點進去確認。 -->
+            <Border Padding="14" CornerRadius="8" BorderBrush="Gray" BorderThickness="1">
+              <StackPanel Spacing="6">
+                <TextBlock Text="其他設定概覽" FontWeight="Bold" />
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="4" ColumnSpacing="8">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="frp 內網穿透:" Foreground="Gray" />
+                  <TextBlock Grid.Row="0" Grid.Column="1" Text="已啟用 · 運作中" Foreground="Green"
+                             IsVisible="{Binding IsFrpEnabledAndRunning}" />
+                  <TextBlock Grid.Row="0" Grid.Column="1" Text="已啟用 · 尚未連上" Foreground="OrangeRed"
+                             IsVisible="{Binding IsFrpEnabledButNotRunning}" />
+                  <TextBlock Grid.Row="0" Grid.Column="1" Text="未啟用" Foreground="Gray" IsVisible="{Binding !FrpEnabled}" />
+
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="連線密碼:" Foreground="Gray" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="已啟用(信任裝置重連也要再驗密碼)" Foreground="Green"
+                             IsVisible="{Binding ConnectionPasswordEnabled}" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="未啟用" Foreground="Gray"
+                             IsVisible="{Binding !ConnectionPasswordEnabled}" />
+
+                  <TextBlock Grid.Row="2" Grid.Column="0" Text="已信任裝置:" Foreground="Gray" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding TrustedClients.Count, StringFormat='{}{0} 台'}" />
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- ── frp 內網穿透 ────────────────────────────────────── -->
+          <StackPanel Spacing="8" IsVisible="{Binding IsFrpCategory}">
+            <CheckBox Content="啟用 frp 內網穿透" IsChecked="{Binding FrpEnabled}" />
+            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                       Text="frpc.exe 會在啟動 Host 時自動從 GitHub 下載(第一次需要網路連線)。設定改了要重新啟動 Host 才會套用。" />
+            <StackPanel IsVisible="{Binding FrpEnabled}" Spacing="8">
+              <TextBlock Text="frps 伺服器位址" FontSize="12" />
+              <TextBox Watermark="例如 1.2.3.4 或 frps.example.com" Text="{Binding FrpServerAddr}" />
+              <TextBlock Text="frps 控制埠(預設 7000)" FontSize="12" />
+              <NumericUpDown Value="{Binding FrpServerPort}" Minimum="1" Maximum="65535" Increment="1" FormatString="F0" />
+              <TextBlock Text="token" FontSize="12" />
+              <TextBox Watermark="留空 = 沿用已經存起來的那組" Text="{Binding FrpToken}" PasswordChar="●" />
+              <TextBlock Text="對外公開埠(Client 端最後連的是這個埠,不是本機 Host 埠)" FontSize="12" />
+              <!-- 真的在 Kyra 機器上炸出來的坑:NumericUpDown 預設內部用 decimal,滑鼠拖曳
+                   旋鈕(spin button 上的拖曳手勢,不是單純點 +/-)會給一個非整數的增量,
+                   使用者會看到「17445.252」這種端口號——Port 本來就只能是整數,沒有
+                   FormatString 就只是「看起來還沒進位」,底層其實已經真的存了小數。
+                   F0 = 固定顯示/輸入成沒有小數點的整數,連帶擋掉拖曳產生的小數增量。 -->
+              <NumericUpDown Value="{Binding FrpRemotePort}" Minimum="1" Maximum="65535" Increment="1" FormatString="F0" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="儲存 frp 設定" Command="{Binding SaveFrpSettingsCommand}" />
+                <TextBlock Text="{Binding FrpSavedMessage}" VerticalAlignment="Center" Foreground="Gray" FontSize="11" />
+              </StackPanel>
+              <TextBlock Text="{Binding FrpLastError}" IsVisible="{Binding FrpHasLastError}" Foreground="OrangeRed" TextWrapping="Wrap" FontSize="11" />
+              <TextBlock IsVisible="{Binding FrpIsRunning}" Foreground="Green" FontSize="12" Text="● 隧道運作中" />
+            </StackPanel>
+          </StackPanel>
+
+          <!-- ── 連線密碼(Kyra 要求的無人值守加固)────────────────── -->
+          <StackPanel Spacing="8" IsVisible="{Binding IsConnectionPasswordCategory}">
+            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                       Text="純指紋釘選(配對過一次之後,之後只要憑證指紋對得上就直接信任)對「機器旁邊沒有人」的情境來說不夠——私鑰一旦外洩就是永久性的破口。啟用這個之後,即使是已經信任的裝置,每次連線都要再驗一次這組密碼才能進來,跟 PIN 配對用同一套 HMAC 機制。要連著這台裝置「連線覆寫」裡的「每次連線都需要密碼」一起開才會生效(裝置清單卡片的編輯按鈕)。" />
+            <CheckBox Content="啟用連線密碼" IsChecked="{Binding ConnectionPasswordEnabled}" />
+            <TextBox Watermark="輸入密碼才能真的啟用(留空=沿用已經存起來的那組,只改開關狀態)"
+                     PasswordChar="●" Text="{Binding ConnectionPasswordInput}"
+                     IsVisible="{Binding ConnectionPasswordEnabled}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="儲存" Command="{Binding SaveConnectionPasswordSettingsCommand}" />
+              <TextBlock Text="{Binding ConnectionPasswordSavedMessage}" VerticalAlignment="Center" Foreground="Gray" FontSize="11" />
+            </StackPanel>
+          </StackPanel>
+
+          <!-- ── 已信任裝置 ──────────────────────────────────────── -->
+          <StackPanel Spacing="8" IsVisible="{Binding IsTrustedClientsCategory}">
+            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                       Text="配對過的 Client 都會列在這裡。撤銷之後那個裝置下次連線要重新輸入 PIN 才能再信任——如果它正在串流,撤銷會立刻斷開,不用等它自己斷線。" />
+            <ItemsControl ItemsSource="{Binding TrustedClients}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:TrustedClientCardViewModel">
+                  <Border Margin="0,4" Padding="8" CornerRadius="6" BorderBrush="Gray" BorderThickness="1">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="{Binding ShortFingerprint}" FontFamily="Consolas,monospace" FontSize="12" />
+                        <TextBlock Text="{Binding PairedAtText}" FontSize="11" Foreground="Gray" />
+                        <TextBlock Text="{Binding LastConnectedText}" FontSize="11" Foreground="Gray" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Content="撤銷" Command="{Binding RevokeCommand}" VerticalAlignment="Center" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="目前沒有已配對過的裝置。" FontSize="12" Foreground="Gray"
+                       IsVisible="{Binding HasNoTrustedClients}" />
+          </StackPanel>
+
+        </StackPanel>
+        </ScrollViewer>
+      </Grid>
     </TabItem>
 
-    <!-- ═══════ 設定(計畫 §8,傳輸/畫質)═══════ -->
+    <!-- ═══════ 設定(計畫 §8 線框圖:左側分類、右側內容)═══════
+         Kyra 回饋:原本整頁疊成一條長長的 StackPanel,功能一直增加(frp 之外的這幾個)
+         就一直往下疊,看起來全部擠在一起——改成照原本線框圖的分類導覽,每次只看一個分類。 -->
     <TabItem Header="設定">
-      <StackPanel Spacing="16" MaxWidth="420" HorizontalAlignment="Left"
-                  DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel">
+      <!-- 設定檔加密(Kyra 要求的功能,見 ConfigStore 上的註解)現在是整份 config.json
+           在磁碟上真的加密,解密只在程式啟動那一刻問一次密碼(App.axaml.cs)——能走到這裡
+           代表已經解鎖過了,這個分頁本身不需要再疊一層「輸入密碼」的畫面,開關/改密碼的
+           UI 在下面的「一般」分類裡。 -->
+      <Grid DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel" ColumnDefinitions="140,*" RowDefinitions="Auto,*">
+        <TabStrip Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,8"
+                  ItemsSource="{Binding AvailableLevels}" SelectedItem="{Binding SelectedLevel}" />
 
-        <!-- 第一層:連線方式(只有「直連/透過代理」兩個選項,auto/tcp/ws 這些實作細節
-             不讓使用者直接選)。 -->
-        <StackPanel Spacing="4">
-          <TextBlock Text="連線方式" FontWeight="Bold" />
-          <ComboBox ItemsSource="{Binding AvailableConnectionKinds}" SelectedItem="{Binding ConnectionKind}" />
-        </StackPanel>
+        <ListBox Grid.Row="1" Grid.Column="0" ItemsSource="{Binding AvailableCategories}"
+                  SelectedItem="{Binding SelectedCategory}" Margin="0,0,8,0" />
 
-        <!-- 第二層:只有選「透過代理」才會出現,問要用訂閱連結還是匯入設定檔。 -->
-        <StackPanel Spacing="4" IsVisible="{Binding IsProxyMode}">
-          <TextBlock Text="代理設定方式" FontWeight="Bold" />
-          <ComboBox ItemsSource="{Binding AvailableProxySourceKinds}" SelectedItem="{Binding ProxySourceKind}" />
+        <ScrollViewer Grid.Row="1" Grid.Column="1">
+        <StackPanel Spacing="16" MaxWidth="420" HorizontalAlignment="Left">
 
-          <StackPanel Spacing="4" Margin="0,8,0,0" IsVisible="{Binding IsSubscriptionSource}">
-            <TextBlock Text="訂閱連結" />
-            <TextBox Watermark="https://..." Text="{Binding ProxySubscriptionUrl}" />
+          <!-- ── 連線 ────────────────────────────────────────────── -->
+          <StackPanel Spacing="16" IsVisible="{Binding IsTransportCategory}">
+            <StackPanel Spacing="4">
+              <TextBlock Text="連線方式" FontWeight="Bold" />
+              <ComboBox ItemsSource="{Binding AvailableConnectionKinds}" SelectedItem="{Binding ConnectionKind}" />
+            </StackPanel>
+
+            <StackPanel Spacing="4" IsVisible="{Binding IsProxyMode}">
+              <TextBlock Text="代理設定方式" FontWeight="Bold" />
+              <ComboBox ItemsSource="{Binding AvailableProxySourceKinds}" SelectedItem="{Binding ProxySourceKind}" />
+
+              <StackPanel Spacing="4" Margin="0,8,0,0" IsVisible="{Binding IsSubscriptionSource}">
+                <TextBlock Text="訂閱連結" />
+                <TextBox Watermark="https://..." Text="{Binding ProxySubscriptionUrl}" />
+              </StackPanel>
+
+              <StackPanel Spacing="4" Margin="0,8,0,0" IsVisible="{Binding IsConfigFileSource}">
+                <TextBlock Text="設定檔" />
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="瀏覽..." Command="{Binding BrowseConfigFileCommand}" />
+                  <TextBox Watermark="尚未選擇檔案" Text="{Binding ProxyConfigFilePath}" IsReadOnly="True" />
+                </DockPanel>
+              </StackPanel>
+
+              <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                <Button Content="解析節點" Command="{Binding ResolveProxyNodeCommand}" IsEnabled="{Binding !IsResolvingProxyNode}" />
+                <TextBlock Text="{Binding ProxyResolveMessage}" VerticalAlignment="Center" Foreground="Gray" FontSize="11" TextWrapping="Wrap" />
+              </StackPanel>
+
+              <StackPanel Spacing="4" Margin="0,8,0,0" IsVisible="{Binding IsMihomoNodeListVisible}">
+                <TextBlock Text="使用節點" FontWeight="Bold" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ComboBox ItemsSource="{Binding AvailableMihomoNodes}" SelectedItem="{Binding SelectedMihomoNode}" Width="280" />
+                  <Button Content="重新整理節點清單" Command="{Binding RefreshMihomoNodeListCommand}" FontSize="11" />
+                </StackPanel>
+              </StackPanel>
+              <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap" IsVisible="{Binding IsSubscriptionSource}"
+                         Text="訂閱連結會交給內嵌的 mihomo 處理(VMess/VLESS/Trojan/Hysteria2 等協定都是它在講,不是 RdpB 自己),第一次用要先下載 mihomo.exe。解析成功會立刻存檔生效,mihomo 在背景持續跑著直到關閉程式。" />
+              <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap" IsVisible="{Binding IsConfigFileSource}"
+                         Text="匯入的設定檔只認得裡面的 socks5:// 或 http(s):// 節點——如果這份檔案也是 VMess/VLESS/Trojan/Hysteria2 這類格式,改用上面的「訂閱連結」(就算是本機檔案,也可以架一個簡單的本機 HTTP server 把它當訂閱連結提供,之後會交給 mihomo 處理)。解析成功會立刻存檔生效。" />
+            </StackPanel>
+
+            <StackPanel Spacing="4" IsVisible="{Binding IsDirectMode}">
+              <CheckBox Content="停用 QUIC(一律直接用 TCP+TLS)" IsChecked="{Binding DisableQuic}" />
+              <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                         Text="走 frp/DDNS 這種中間一定不轉發 UDP 的連線,QUIC 永遠連不上,每次連線都白等約 1.5 秒才退回 TCP+TLS——這種情況建議直接開這個,少等一次逾時。不影響下面的 RDP 連線偽裝,兩個可以一起開。" />
+            </StackPanel>
+
+            <CheckBox Content="DIRECT 時自動套用 RDP 連線偽裝(§7)" IsChecked="{Binding RdpCamouflageWhenDirect}"
+                      IsVisible="{Binding IsDirectMode}" />
+            <StackPanel Margin="24,0,0,0" IsVisible="{Binding IsDirectMode}">
+              <CheckBox Content="進階:偽裝改連專用埠 3389(連埠號都跟真正的 RDP 一致)"
+                        IsChecked="{Binding RdpCamouflageUseDedicatedPort}" IsEnabled="{Binding RdpCamouflageWhenDirect}" />
+              <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                         Text="預設不開——偽裝握手已經會自動疊在妳原本要連的那個埠上,不用額外佔用 3389。這個開關只有想要「連埠號都一致」這一點點效果的人才需要,開了可能撞上 Windows 自己的 Remote Desktop 服務。" />
+            </StackPanel>
           </StackPanel>
 
-          <StackPanel Spacing="4" Margin="0,8,0,0" IsVisible="{Binding IsConfigFileSource}">
-            <TextBlock Text="設定檔" />
-            <DockPanel>
-              <Button DockPanel.Dock="Right" Content="瀏覽..." Command="{Binding BrowseConfigFileCommand}" />
-              <TextBox Watermark="尚未選擇檔案" Text="{Binding ProxyConfigFilePath}" IsReadOnly="True" />
-            </DockPanel>
+          <!-- ── 畫質 ────────────────────────────────────────────── -->
+          <StackPanel Spacing="16" IsVisible="{Binding IsQualityCategory}">
+            <StackPanel Spacing="4">
+              <TextBlock Text="畫質預設" FontWeight="Bold" />
+              <ComboBox ItemsSource="{Binding AvailablePresetLabels}" SelectedItem="{Binding PresetLabel}" />
+              <TextBlock Text="快速/平衡/品質會自動套用下面三個欄位;選「自訂」才能自己手動調。"
+                         FontSize="11" Foreground="Gray" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="影像 fps" FontWeight="Bold" />
+              <ComboBox ItemsSource="{Binding AvailableFpsOptions}" SelectedItem="{Binding Fps}"
+                        IsEnabled="{Binding IsCustomPreset}" />
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="位元率(Kbps)" FontWeight="Bold" />
+              <NumericUpDown Value="{Binding BitrateKbps}" Minimum="1000" Maximum="100000" Increment="1000"
+                             FormatString="F0" IsEnabled="{Binding IsCustomPreset}" />
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="畫面縮放(%)" FontWeight="Bold" />
+              <NumericUpDown Value="{Binding ScalePercent}" Minimum="25" Maximum="100" Increment="25"
+                             FormatString="F0" IsEnabled="{Binding IsCustomPreset}" />
+              <TextBlock Text="只影響退到軟體編碼(libx264)的情況——硬體編碼器(nvenc 等)一律用原生解析度,縮放對它沒有意義。解析度越高,軟體編碼 CPU 負擔越重,縮小一點能讓畫面至少先動起來。"
+                         FontSize="11" Foreground="Gray" TextWrapping="Wrap" />
+            </StackPanel>
           </StackPanel>
 
-          <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="Gray" TextWrapping="Wrap"
-                     Text="節點解析還沒做,目前先存起來(見 docs/PROTOCOL.md 的已知缺口)。" />
+          <!-- ── 一般 ────────────────────────────────────────────── -->
+          <StackPanel Spacing="16" IsVisible="{Binding IsGeneralCategory}">
+            <CheckBox Content="縮小/關閉視窗時自動收到系統匣(取消勾選則直接結束程式)"
+                      IsChecked="{Binding MinimizeToTray}" />
+
+            <StackPanel Spacing="4">
+              <TextBlock Text="啟動模式(無痕模式)" FontWeight="Bold" />
+              <ComboBox ItemsSource="{Binding AvailableLaunchModes}" SelectedItem="{Binding LaunchMode}" />
+              <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                         Text="「每次開啟都問」會在雙擊啟動時跳出選擇視窗;選了「一律無痕模式」之後,雙擊啟動就直接進無痕模式,不用再打命令列參數。" />
+            </StackPanel>
+
+            <StackPanel Spacing="4" IsVisible="{Binding IsEncryptionAvailable}">
+              <TextBlock Text="設定檔加密" FontWeight="Bold" />
+              <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                         Text="整份 config.json 在磁碟上用這組密碼真的加密(AES-256-GCM),不是只擋畫面。開啟後每次啟動程式都要先輸入這組密碼才能進去,密碼忘記就真的沒辦法復原這份設定(配對紀錄、各種設定都在裡面)——沒有後門,請自己收好密碼。" />
+              <CheckBox Content="啟用加密" IsChecked="{Binding SettingsLockEnabled}" />
+              <TextBox Watermark="輸入密碼才能真的啟用加密"
+                       PasswordChar="●" Text="{Binding NewLockPassword}"
+                       IsVisible="{Binding SettingsLockEnabled}" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="套用" Command="{Binding SaveLockSettingsCommand}" />
+                <TextBlock Text="{Binding LockSavedMessage}" VerticalAlignment="Center" Foreground="Gray" FontSize="11" />
+              </StackPanel>
+            </StackPanel>
+            <!-- 無痕模式下 _configPath 是暫存複本,見 SettingsViewModel.IsEncryptionAvailable
+                 上的註解(code review 抓到的真坑:加密的金鑰是整個行程共用的全域狀態,對
+                 暫存複本加密會把真正 config.json 的金鑰整個換掉)。 -->
+            <TextBlock IsVisible="{Binding !IsEncryptionAvailable}" FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                       Text="設定檔加密在無痕模式下無法使用(這個 session 用的是關掉就消失的暫存設定複本,加密它沒有意義)。" />
+          </StackPanel>
+
+          <!-- ── 隱私防護 ────────────────────────────────────────── -->
+          <StackPanel Spacing="8" IsVisible="{Binding IsPrivacyCategory}">
+            <CheckBox Content="排除串流視窗於螢幕擷取之外(截圖/OBS/螢幕分享只會看到黑屏)"
+                      IsChecked="{Binding BlockScreenCapture}" />
+            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                       Text="用 Windows 10 2004+ 的 SetWindowDisplayAffinity,不是真的 HDCP。開著的話妳自己想截圖/用 OBS 錄自己的遠端畫面也會錄不到,是真的副作用。" />
+            <CheckBox Content="偵測程序被注入/debugger 附加,偵測到立刻斷線"
+                      IsChecked="{Binding DetectTampering}" />
+            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                       Text="best-effort,提高攻擊者的成本,不保證防住真的有 kernel 權限的攻擊者。可能有誤判風險,開著就要有被誤判斷線的心理準備。" />
+          </StackPanel>
+
+          <!-- ── HUD ─────────────────────────────────────────────── -->
+          <StackPanel Spacing="16" IsVisible="{Binding IsHudCategory}">
+            <StackPanel Spacing="4">
+              <TextBlock Text="串流視窗開啟時的初始狀態" FontWeight="Bold" />
+              <ComboBox ItemsSource="{Binding AvailableHudPresets}" SelectedItem="{Binding HudPreset}" />
+              <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                         Text="串流中按 F10 可以在這三態之間循環,不用重新連線才能換。" />
+            </StackPanel>
+            <StackPanel Spacing="4">
+              <TextBlock Text="位置" FontWeight="Bold" />
+              <ComboBox ItemsSource="{Binding AvailableHudPositions}" SelectedItem="{Binding HudPosition}" />
+            </StackPanel>
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding HudOpacity, StringFormat='透明度:{0:0%}'}" FontWeight="Bold" />
+              <Slider Minimum="0.1" Maximum="1.0" Value="{Binding HudOpacity}" />
+            </StackPanel>
+            <StackPanel Spacing="4">
+              <TextBlock Text="字級" FontWeight="Bold" />
+              <NumericUpDown Value="{Binding HudFontSize}" Minimum="8" Maximum="32" Increment="1" />
+            </StackPanel>
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding HudUpdateHz, StringFormat='更新頻率:{0:0.#} Hz'}" FontWeight="Bold" />
+              <Slider Minimum="0.5" Maximum="10" Value="{Binding HudUpdateHz}" />
+            </StackPanel>
+          </StackPanel>
+
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="儲存設定" Command="{Binding SaveCommand}" />
+            <TextBlock Text="{Binding SavedMessage}" VerticalAlignment="Center" Foreground="Gray" />
+          </StackPanel>
         </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </TabItem>
 
-        <!-- §7 的偽裝開關只在 DIRECT 才出現,不是只停用而已。 -->
-        <CheckBox Content="DIRECT 時自動套用 RDP 連線偽裝(§7)" IsChecked="{Binding RdpCamouflageWhenDirect}"
-                  IsVisible="{Binding IsDirectMode}" />
+    <!-- ═══════ 診斷(計畫 §8)═══════ -->
+    <TabItem Header="診斷">
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="12"
+            DataContext="{Binding Diagnostics}" x:DataType="vm:DiagnosticsViewModel">
 
-        <StackPanel Spacing="4">
-          <TextBlock Text="影像 fps" FontWeight="Bold" />
-          <ComboBox ItemsSource="{Binding AvailableFpsOptions}" SelectedItem="{Binding Fps}" />
-        </StackPanel>
+        <DockPanel Grid.Column="0">
+          <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBox Watermark="位址,例如 192.168.0.50 或 192.168.0.50:7443" Width="260"
+                       Text="{Binding TargetAddress}" />
+              <Button Content="開始診斷" Command="{Binding RunCommand}" IsEnabled="{Binding !IsRunning}" />
+            </StackPanel>
+            <TextBlock Text="{Binding StatusMessage}" Foreground="Gray" FontSize="12" />
+          </StackPanel>
 
-        <StackPanel Spacing="4">
-          <TextBlock Text="位元率(Kbps)" FontWeight="Bold" />
-          <NumericUpDown Value="{Binding BitrateKbps}" Minimum="1000" Maximum="100000" Increment="1000" />
-        </StackPanel>
+          <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding Steps}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:DiagnosticStepViewModel">
+                  <Border Margin="0,0,0,8" Padding="10" CornerRadius="6" BorderBrush="Gray" BorderThickness="1">
+                    <StackPanel Spacing="2">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{Binding StepName}" FontWeight="Bold" />
+                        <TextBlock Text="{Binding StatusText}" />
+                      </StackPanel>
+                      <TextBlock Text="{Binding Message}" FontSize="12" Foreground="Gray" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
 
-        <CheckBox Content="縮小/關閉視窗時自動收到系統匣(取消勾選則直接結束程式)"
-                  IsChecked="{Binding MinimizeToTray}" />
-
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <Button Content="儲存設定" Command="{Binding SaveCommand}" />
-          <TextBlock Text="{Binding SavedMessage}" VerticalAlignment="Center" Foreground="Gray" />
-        </StackPanel>
-      </StackPanel>
+        <DockPanel Grid.Column="1">
+          <TextBlock DockPanel.Dock="Top" Text="Log 檢視" FontWeight="Bold" Margin="0,0,0,8" />
+          <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding LogLines}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <TextBlock Text="{Binding}" FontFamily="Consolas,monospace" FontSize="11" TextWrapping="Wrap" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Grid>
     </TabItem>
 
   </TabControl>

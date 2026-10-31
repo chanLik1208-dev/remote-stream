@@ -22,6 +22,7 @@ public sealed partial class DeviceCardViewModel : ObservableObject
     private readonly Func<DeviceCardViewModel, Task> _onTestConnectivity;
     private readonly Action<DeviceCardViewModel> _onRemove;
     private readonly Func<DeviceCardViewModel, Task> _onConnect;
+    private readonly Func<DeviceCardViewModel, Task> _onEdit;
 
     public PinnedHostRecord Record { get; }
 
@@ -52,12 +53,14 @@ public sealed partial class DeviceCardViewModel : ObservableObject
         PinnedHostRecord record,
         Func<DeviceCardViewModel, Task> onTestConnectivity,
         Action<DeviceCardViewModel> onRemove,
-        Func<DeviceCardViewModel, Task> onConnect)
+        Func<DeviceCardViewModel, Task> onConnect,
+        Func<DeviceCardViewModel, Task> onEdit)
     {
         Record = record;
         _onTestConnectivity = onTestConnectivity;
         _onRemove = onRemove;
         _onConnect = onConnect;
+        _onEdit = onEdit;
     }
 
     [RelayCommand]
@@ -65,6 +68,9 @@ public sealed partial class DeviceCardViewModel : ObservableObject
 
     [RelayCommand]
     private void Remove() => _onRemove(this);
+
+    [RelayCommand]
+    private Task EditAsync() => _onEdit(this);
 
     [RelayCommand]
     private async Task ConnectAsync()

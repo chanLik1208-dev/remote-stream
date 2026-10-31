@@ -99,12 +99,36 @@ public class HostListenerServiceTests
 
         Assert.False(vm.IsRunning);
 
-        vm.Start(port: 0); // 0,不要去搶真正的預設埠(平行測試、或 Kyra 自己開著 Host 時會撞號)
+        await vm.StartAsync(port: 0); // 0,不要去搶真正的預設埠(平行測試、或 Kyra 自己開著 Host 時會撞號)
         Assert.True(vm.IsRunning);
         Assert.NotNull(vm.Pin);
+        Assert.False(vm.IsStarting); // 啟動完成後旗標該清掉,不然「啟動中…」的按鈕文字會卡住
 
         await vm.StopAsync();
         Assert.False(vm.IsRunning);
         Assert.Null(vm.Pin);
+    }
+
+    [Fact]
+    public async Task HostViewModel_StartAsync_RunsBlockingWorkOnBackgroundThread_NotCallerThread()
+    {
+        // 真的有人回報過的坑:啟動 Host 會讓整個 UI「沒有回應」,根因是
+        // HostListenerService.Start() 原本在呼叫端(Avalonia UI 執行緒)同步跑,裡面
+        // QuicListener.ListenAsync 在某些機器上會卡住。這裡驗證 StartAsync 呼叫後、
+        // await 完成前,IsStarting 已經是 true(代表同步的 _service.Start() 已經被丟進
+        // Task.Run,呼叫端這一行本身沒有被卡住——如果 StartAsync 其實還是同步阻塞的,
+        // 這一行根本不會執行到,因為上一行的呼叫早就卡死了,整個測試會逾時,不是斷言失敗)。
+        await using var service = new HostListenerService();
+        var vm = new HostViewModel(service);
+
+        var startTask = vm.StartAsync(port: 0);
+        Assert.True(vm.IsStarting); // 呼叫端馬上拿回控制權,不是卡在這裡等 Start() 做完
+
+        await startTask;
+
+        Assert.True(vm.IsRunning);
+        Assert.False(vm.IsStarting);
+
+        await vm.StopAsync();
     }
 }

@@ -111,6 +111,13 @@ public sealed unsafe class Decoder : IDisposable
         if (UsingHardware)
         {
             ffmpeg.av_frame_unref(cpuFrame);
+            // 跟 Host 端 CaptureEncoder 那個坑一模一樣:av_hwframe_transfer_data 的目的地
+            // frame 不給 format/width/height,底層不知道要配置多大的緩衝區,直接回傳
+            // Invalid argument——這條硬解路徑之前從沒真的收到過一幀(Host 那邊先掛了),
+            // 所以一直沒踩到。D3D11VA 解碼吐出來的固定是 NV12,寬高照抄 hwFrame 的就好。
+            cpuFrame->format = (int)AVPixelFormat.AV_PIX_FMT_NV12;
+            cpuFrame->width = hwFrame->width;
+            cpuFrame->height = hwFrame->height;
             int ret = ffmpeg.av_hwframe_transfer_data(cpuFrame, hwFrame, 0);
             if (ret < 0) throw new InvalidOperationException($"hwframe_transfer_data 失敗:{DescribeError(ret)}");
             nv12Frame = cpuFrame;

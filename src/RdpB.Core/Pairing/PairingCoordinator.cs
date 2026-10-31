@@ -28,6 +28,22 @@ public static class PairingCoordinator
     /// 畫面真的有變化才給出第一幀,啟動時間本身就有變動)。</summary>
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(2);
 
+    /// <summary>真的在這台機器上炸出來的坑:Host 端在真正訂閱 session.MessageReceived
+    /// (WaitForPairingAsync 內部)之前,還要做幾件事(查信任清單讀磁碟、PIN 過期檢查、
+    /// 搶並行配對名額的號誌)——不管這些檢查放在程式碼的哪個位置,只要跟「建立 session」
+    /// 或「真的訂閱上」之間存在任何一個 await,Client 送的第一個 Pair 訊息理論上都可能
+    /// 剛好搶在訂閱完成前就送達,直接憑空消失(C# 事件沒有訂閱者就是單純的 no-op,不會
+    /// 緩衝)。寫一個會自己連續猜 PIN 的測試(完全沒有人類打字的等待時間),第 7、8 輪就
+    /// 穩定踩到過一次,Host 端乾等整整 60 秒才放棄。
+    ///
+    /// 與其想辦法在 Host 端把這個縫隙徹底焊死(牽涉到要嘛完全重排檢查順序、要嘛在
+    /// CoreSession 這一層加訊息緩衝,影響範圍大很多),改成 Client 端自己定期重送同一個
+    /// Pair 訊息(tag 是一樣的,Host 收到的話重複的那幾份會因為 Host 端的 handler 第一件事
+    /// 就是取消訂閱自己而被安靜忽略,不會重複處理)——這是這類「订阅之后才能收到」競態的
+    /// 標準解法,網路協定裡到處都是(ARP/DHCP 這類也都是重送,不是想辦法消除競態窗口本身)。
+    /// 對真人輸入 PIN 的正常流程完全無感,只是每隔這麼久送一次一模一樣的 bytes。</summary>
+    private static readonly TimeSpan ResendInterval = TimeSpan.FromSeconds(2);
+
     /// <summary>Client 端:主動發起配對。<paramref name="remoteCertificate"/> 是 TLS handshake
     /// 時真的連上的那個憑證(不是使用者自己輸入的),<paramref name="localCertificate"/> 是
     /// Client 自己的身分憑證。</summary>
@@ -69,12 +85,34 @@ public static class PairingCoordinator
 
         try
         {
-            await session.SendAsync(Channel.Control, MessageType.Pair, payload, ct).ConfigureAwait(false);
-
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(timeout ?? DefaultTimeout);
             await using (timeoutCts.Token.Register(() => tcs.TrySetResult(PairingResult.Timeout)).ConfigureAwait(false))
             {
+                // 見 ResendInterval 上的註解:第一次送完,每隔 ResendInterval 還沒收到回應
+                // 就重送同一包——真人輸入 PIN 通常遠超過這個間隔,所以這個迴圈在正常使用時
+                // 多半會重送個幾次都還在等人,完全不影響體感;會卡住 Host 端那個競態窗口
+                // 通常只有幾毫秒,重送一次幾乎一定就接上了。
+                while (!tcs.Task.IsCompleted)
+                {
+                    try
+                    {
+                        await session.SendAsync(Channel.Control, MessageType.Pair, payload, ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) { throw; } // ct 被取消是呼叫端自己要的,不是斷線,往外丟讓呼叫端處理
+                    catch (Exception) when (!ct.IsCancellationRequested)
+                    {
+                        // code review 複查抓到的坑:原本只接 ObjectDisposedException,但重送
+                        // 那一刻連線真的斷掉(對面關程式、網路斷線、TLS 連線被重置)丟出來的
+                        // 通常是 SocketException/IOException,不是 ObjectDisposedException——
+                        // 原本的程式碼會讓這些例外整個往外飄,砸穿 ClientConnectionService 的
+                        // 「連線」按鈕,而不是回報成一個乾淨的 PairingResult。跟
+                        // session.StateChanged 轉成 Closed 時的語意一樣,當斷線處理。
+                        tcs.TrySetResult(PairingResult.Disconnected);
+                        break;
+                    }
+                    await Task.WhenAny(tcs.Task, Task.Delay(ResendInterval, ct)).ConfigureAwait(false);
+                }
                 return await tcs.Task.ConfigureAwait(false);
             }
         }

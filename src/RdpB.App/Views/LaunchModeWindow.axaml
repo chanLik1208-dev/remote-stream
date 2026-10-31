@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="RdpB.App.Views.LaunchModeWindow"
+        Title="RDP-B — 選擇啟動模式"
+        Width="420" Height="260" CanResize="False"
+        WindowStartupLocation="CenterScreen">
+  <StackPanel Margin="20" Spacing="16">
+    <TextBlock Text="這次要用哪種模式啟動?" FontWeight="Bold" FontSize="16" />
+    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="12"
+               Text="無痕模式可以照常使用已配對的裝置和設定,但這次 session 做的任何新配對、連線紀錄、改過的設定都不會寫回真正的設定檔,關掉就消失。" />
+
+    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center" Margin="0,8,0,0">
+      <Button Name="NormalButton" Content="一般模式" Width="150" Height="44" FontSize="14" />
+      <Button Name="IncognitoButton" Content="無痕模式" Width="150" Height="44" FontSize="14" />
+    </StackPanel>
+
+    <CheckBox Name="RememberCheckBox" Content="記住這個選擇,下次開啟不要再問(設定頁可以改回來)" />
+  </StackPanel>
+</Window>

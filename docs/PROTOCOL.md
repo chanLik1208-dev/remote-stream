@@ -613,9 +613,16 @@ GUI 的下拉選單跟 `CaptureEncoder.Start(fps, ...)` 的參數驗證共用這
 6. **Video channel 的 keyframe 資訊怎麼過線、`VideoKeyframeRequest` 怎麼接到
    `RequestKeyframe()`,這兩段整合程式碼都不在本次讀取範圍內**(見第 13 節),
    是從命名和既有方法合理推斷出來的,建議實測核對一次封包內容。
-7. **WebSocket+TLS transport 完全沒有實作**(`TransportMode.Ws` 直接丟
-   `NotSupportedException`,見第 6 節)——如果你的 Swift client 打算支援 WS
-   當 fallback,這塊協定目前在 C# 端根本不存在,連格式都沒有,等於要從零一起設計。
+7. **(已過時,2026/10/31 更正)WebSocket+TLS transport 其實已經實作完了**——
+   `WsTransport`(Client 端連線 + Server 端 `ServerUpgradeHandshakeAsync`)和
+   `WsTransportListener`(Host 端監聽,見 `HostListenerService.Start` 裡的
+   `_wsListener`)兩邊都有,走 RFC 6455 §4.1 最小可用的 HTTP Upgrade 交握,
+   交握完用 BCL 的 `WebSocket.CreateFromStream` 接手 framing。本節原本寫
+   「`TransportMode.Ws` 直接丟 `NotSupportedException`」是這份文件沒有跟上
+   程式碼進度,不是現在的真實行為——第 6 節那段敘述也一併過時,實際上
+   `TransportConnector.ConnectAsync` 的 `TransportMode.Ws` 分支會真的呼叫
+   `WsTransport.ConnectAsync`。Swift client 如果要支援 WS,可以直接照
+   `WsTransport.cs`/`WsTransportListener.cs` 的程式碼對,不用從零設計格式。
 8. **Host 端 QUIC listener 的 `MaxInboundBidirectionalStreams`/
    `MaxInboundUnidirectionalStreams` 設定沒有在本次讀取的檔案裡看到**
    (只看到 Client 端的設定值,見第 5.4 節),需要再確認 Host 端是否對稱設定。
